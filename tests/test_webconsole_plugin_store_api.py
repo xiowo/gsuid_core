@@ -70,6 +70,9 @@ def _make_remote(count: int = 40) -> Dict[str, Any]:
         "plugins": plugins,
         "fun_plugins": ["Plugin00", "Plugin01"],
         "tool_plugins": ["Plugin02"],
+        "adapter_plugins": ["Plugin02"],
+        # 未来新增的分组键：接口必须原样透传且不影响现有字段
+        "future_plugins": ["Plugin99"],
     }
 
 
@@ -167,6 +170,48 @@ def test_store_counts_are_totals_regardless_of_paging(store_client: TestClient):
         assert data["counts"]["installed"] == 1
         assert data["counts"]["fun"] == 2
         assert data["counts"]["tool"] == 1
+        assert data["counts"]["adapter"] == 1
+
+
+def test_store_adapter_tab_filters_and_returns_group(store_client: TestClient):
+    data = _get(store_client, tab="adapter")
+    assert [p["id"] for p in data["plugins"]] == ["Plugin02"]
+    assert data["count"] == 1
+    assert data["adapter_plugins"] == ["Plugin02"]
+
+
+def test_store_plugin_groups_passthrough(store_client: TestClient):
+    """新增的 *_plugins 分组键原样透传：前端按 key 自取，后端不用再改。"""
+    data = _get(store_client)
+    assert data["plugin_groups"]["adapter_plugins"] == ["Plugin02"]
+    assert data["plugin_groups"]["fun_plugins"] == ["Plugin00", "Plugin01"]
+    assert data["plugin_groups"]["future_plugins"] == ["Plugin99"]
+
+
+def test_store_malformed_plugins_field_returns_empty(store_client: TestClient):
+    """远端 plugins 不是 dict（如 JSON 结构调整）时降级为空，不 500。"""
+    _FakeAsyncClient.payload = {"plugins": ["not", "a", "dict"]}
+    try:
+        data = _get(store_client)
+    finally:
+        _FakeAsyncClient.payload = _make_remote()
+    assert data["plugins"] == []
+    assert data["counts"]["all"] == 0
+
+
+def test_store_non_dict_plugin_entry_degrades(store_client: TestClient):
+    """单个条目畸形（非 dict）按空信息展示，不拖垮整个列表。"""
+    _FakeAsyncClient.payload = {
+        "plugins": {
+            "BadEntry": "oops",
+            "Good": {"info": "ok", "link": "https://github.com/o/r"},
+        }
+    }
+    try:
+        data = _get(store_client)
+    finally:
+        _FakeAsyncClient.payload = _make_remote()
+    assert {p["id"] for p in data["plugins"]} == {"BadEntry", "Good"}
 
 
 def test_store_offset_beyond_end_returns_empty_page(store_client: TestClient):

@@ -1003,7 +1003,7 @@ async def reload_plugin_api(request: Request, plugin_name: str, _user: Dict[str,
 async def get_plugin_store_list(
     request: Request,
     _user: Dict[str, Any] = Depends(require_auth),
-    tab: Optional[str] = Query(None, description="页签筛选：all / installed / updates / fun / tool"),
+    tab: Optional[str] = Query(None, description="页签筛选：all / installed / updates / fun / tool / adapter"),
     search: Optional[str] = Query(None, description="按插件名/描述/标签模糊匹配"),
     limit: Optional[int] = Query(None, ge=1, le=200, description="单页条数；不传=全量"),
     offset: int = Query(0, ge=0, description="偏移量"),
@@ -1026,7 +1026,7 @@ async def get_plugin_store_list(
 
     Returns:
         status: 0成功，1失败
-        data: 包含 plugins、fun_plugins、tool_plugins 的对象
+        data: 包含 plugins、fun_plugins、tool_plugins、adapter_plugins、plugin_groups 的对象
             + count（筛选后总数）/ total_count（全量）/ counts（各页签总数）
     """
     import httpx
@@ -1039,8 +1039,10 @@ async def get_plugin_store_list(
             response.raise_for_status()
             plugin_data = response.json()
 
-        # Get plugins data structure
+        # Get plugins data structure（远端 JSON 不可控：plugins 非 dict 时降级为空，不让列表接口 500）
         plugins_dict = plugin_data.get("plugins", {})
+        if not isinstance(plugins_dict, dict):
+            plugins_dict = {}
 
         # Get installed plugins
         installed_plugins = await get_local_plugins_list()
@@ -1050,6 +1052,9 @@ async def get_plugin_store_list(
         formatted_plugins = []
 
         for plugin_id, plugin_info in plugins_dict.items():
+            # 条目畸形（非 dict）时按空信息展示，不让单个坏条目拖垮整个列表
+            if not isinstance(plugin_info, dict):
+                plugin_info = {}
             is_installed = plugin_id.lower() in installed_ids
 
             # Determine status
@@ -1081,11 +1086,17 @@ async def get_plugin_store_list(
                 }
             )
 
-        # Get fun_plugins and tool_plugins from the remote data
+        # Get fun_plugins / tool_plugins / adapter_plugins from the remote data
         fun_plugins = plugin_data.get("fun_plugins", [])
         tool_plugins = plugin_data.get("tool_plugins", [])
+        adapter_plugins = plugin_data.get("adapter_plugins", [])
         fun_ids = set(fun_plugins)
         tool_ids = set(tool_plugins)
+        adapter_ids = set(adapter_plugins)
+        # 其余 *_plugins 分组原样透传：远端新增分组（如 xxx_plugins）无需改接口即可被前端使用
+        plugin_groups = {
+            key: value for key, value in plugin_data.items() if key.endswith("_plugins") and isinstance(value, list)
+        }
 
         # 页签计数（前端页签徽标用）：对**全量**统计，不受页签/搜索/分页影响
         counts = {
@@ -1094,6 +1105,7 @@ async def get_plugin_store_list(
             "updates": sum(1 for p in formatted_plugins if p["hasUpdate"]),
             "fun": sum(1 for p in formatted_plugins if p["id"] in fun_ids),
             "tool": sum(1 for p in formatted_plugins if p["id"] in tool_ids),
+            "adapter": sum(1 for p in formatted_plugins if p["id"] in adapter_ids),
         }
 
         # 先筛后切：页签 + 搜索都在服务端过滤完再分页
@@ -1106,6 +1118,8 @@ async def get_plugin_store_list(
             selected = [p for p in selected if p["id"] in fun_ids]
         elif tab == "tool":
             selected = [p for p in selected if p["id"] in tool_ids]
+        elif tab == "adapter":
+            selected = [p for p in selected if p["id"] in adapter_ids]
 
         keyword = (search or "").strip().lower()
         if keyword:
@@ -1131,6 +1145,8 @@ async def get_plugin_store_list(
                 "plugins": page_items,
                 "fun_plugins": fun_plugins,
                 "tool_plugins": tool_plugins,
+                "adapter_plugins": adapter_plugins,
+                "plugin_groups": plugin_groups,
                 "count": count,
                 "total_count": total_count,
                 "counts": counts,
