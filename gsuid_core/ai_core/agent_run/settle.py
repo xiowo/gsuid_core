@@ -770,6 +770,7 @@ class SettlePhase(RunOnceHost):
                 and not st.effectual_mutate
                 and st.tool_names
                 and not st.fake_done_retry
+                and self.create_by in _INTERACTIVE_CREATE_BY
                 # 结构证据：预检暂扣 or 文本宣称完成；PIN 拒绝也算没改世界
                 and (st.fab_blocked or _claims_fake_done(result_msg))
             ):
@@ -970,6 +971,8 @@ class SettlePhase(RunOnceHost):
                 if _disputed and not _cover_hit:
                     result_msg = _prior
                 elif _called and isinstance(_ec, str) and _correction_is_deliverable(_ec):
+                    result_msg = _ec.strip()
+                elif (not _called) and isinstance(_ec, str) and _correction_is_deliverable(_ec) and not _cover_hit:
                     result_msg = _ec.strip()
                 else:
                     result_msg = "<SILENCE>"

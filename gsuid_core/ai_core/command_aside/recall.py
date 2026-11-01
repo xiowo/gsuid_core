@@ -22,6 +22,7 @@ class RecallItem(TypedDict):
     receipt: str
     advice: str
     updated_at: float
+    persona_name: str
 
 
 def _path():
@@ -34,6 +35,8 @@ def skeleton_receipt(text: str) -> str:
     s = re.sub(r"https?://\S+", "{URL}", s)
     s = re.sub(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?", "{IP}", s)
     s = re.sub(r"【[^】\n]{3,60}】", "{VAR}", s)
+    s = re.sub(r"[「『][^」』\n]{2,30}[」』]", "{PARAM}", s)
+    s = re.sub(r"[\[（(][^\]）)\n]{2,30}[\]）)]", "{PARAM}", s)
     s = re.sub(r"\b\d{2,}\b", "{NUM}", s)
     return " ".join(s.split())[:600]
 
@@ -42,8 +45,9 @@ def normalize_receipt(text: str) -> str:
     return skeleton_receipt(text)
 
 
-def _key(plugin: str, trigger_id: str, receipt: str) -> str:
-    return f"{plugin}\n{trigger_id}\n{skeleton_receipt(receipt)}"
+def _key(plugin: str, trigger_id: str, receipt: str, persona_name: str = "") -> str:
+    pfx = f"{persona_name}::" if persona_name else ""
+    return f"{pfx}{plugin}\n{trigger_id}\n{skeleton_receipt(receipt)}"
 
 
 def _legacy_whitespace_key(plugin: str, receipt: str) -> str:
@@ -52,7 +56,11 @@ def _legacy_whitespace_key(plugin: str, receipt: str) -> str:
 
 
 def _is_polluted(receipt: str, advice: str) -> bool:
-    return _LEGACY_PLACEHOLDER in receipt or _LEGACY_PLACEHOLDER in advice
+    if _LEGACY_PLACEHOLDER in receipt or _LEGACY_PLACEHOLDER in advice:
+        return True
+    if advice.startswith("执行出错") or "Request timed out" in advice or "执行出错" in advice:
+        return True
+    return False
 
 
 def _stamp(item: object, legacy_mtime: float) -> float | None:
@@ -84,6 +92,7 @@ def _load() -> dict[str, RecallItem]:
         receipt = item["receipt"] if "receipt" in item else None
         advice = item["advice"] if "advice" in item else None
         trigger_id = item["trigger_id"] if "trigger_id" in item else ""
+        persona_name = item["persona_name"] if "persona_name" in item and isinstance(item["persona_name"], str) else ""
         updated_at = _stamp(item, legacy_mtime)
         if not (isinstance(plugin, str) and isinstance(receipt, str) and isinstance(advice, str) and advice.strip()):
             continue
@@ -99,6 +108,7 @@ def _load() -> dict[str, RecallItem]:
             "receipt": receipt,
             "advice": advice,
             "updated_at": updated_at,
+            "persona_name": persona_name,
         }
     return kept
 
@@ -115,30 +125,56 @@ def _save(items: dict[str, RecallItem]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _find_item(items: dict[str, RecallItem], plugin: str, receipt: str, trigger_id: str) -> RecallItem | None:
-    candidates = [
-        _key(plugin, trigger_id, receipt),
-        _key(plugin, "", receipt),
-        _legacy_whitespace_key(plugin, receipt),
-        f"{plugin}\n{skeleton_receipt(receipt)}",
-    ]
+def _find_item(
+    items: dict[str, RecallItem],
+    plugin: str,
+    receipt: str,
+    trigger_id: str,
+    persona_name: str = "",
+) -> RecallItem | None:
+    candidates: list[str] = []
+    if persona_name:
+        candidates.extend(
+            [
+                _key(plugin, trigger_id, receipt, persona_name),
+                _key(plugin, "", receipt, persona_name),
+                f"{persona_name}::{plugin}\n{skeleton_receipt(receipt)}",
+            ]
+        )
+    candidates.extend(
+        [
+            _key(plugin, trigger_id, receipt),
+            _key(plugin, "", receipt),
+            _legacy_whitespace_key(plugin, receipt),
+            f"{plugin}\n{skeleton_receipt(receipt)}",
+        ]
+    )
     for key in candidates:
         if key in items:
-            return items[key]
+            item = items[key]
+            item_persona = item["persona_name"]
+            if not item_persona or not persona_name or item_persona == persona_name:
+                return item
     return None
 
 
-def lookup_advice(plugin: str, receipt: str, trigger_id: str = "") -> str:
+def lookup_advice(plugin: str, receipt: str, trigger_id: str = "", persona_name: str = "") -> str:
     if not plugin or not receipt.strip():
         return ""
     with _LOCK:
-        item = _find_item(_load(), plugin, receipt, trigger_id)
+        item = _find_item(_load(), plugin, receipt, trigger_id, persona_name=persona_name)
     if item is None:
         return ""
     return item["advice"]
 
 
-def save_advice(plugin: str, receipt: str, advice: str, trigger_id: str = "") -> None:
+def save_advice(
+    plugin: str,
+    receipt: str,
+    advice: str,
+    trigger_id: str = "",
+    persona_name: str = "",
+) -> None:
     text = advice.strip()
     if not plugin or not receipt.strip() or not text:
         return
@@ -146,12 +182,13 @@ def save_advice(plugin: str, receipt: str, advice: str, trigger_id: str = "") ->
         return
     with _LOCK:
         items = _load()
-        k = _key(plugin, trigger_id, receipt)
+        k = _key(plugin, trigger_id, receipt, persona_name=persona_name)
         items[k] = {
             "plugin": plugin,
             "trigger_id": trigger_id,
             "receipt": skeleton_receipt(receipt),
             "advice": text[:2000],
             "updated_at": time.time(),
+            "persona_name": persona_name,
         }
         _save(items)

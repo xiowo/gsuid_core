@@ -158,7 +158,7 @@ _WAIT_COMFORT_RE = re.compile(
 # 编排元话语：叙述内部 worker（让/叫/派 + 非自称 + 去；或拉丁节点名）
 _ORCHESTRATION_NARRATION_RE = re.compile(
     r"(让|叫|派)\s*[A-Za-z][A-Za-z0-9_]{2,}\s*(去|来|出|画|渲|跑|执行|处理)|"
-    r"(让|叫|派)\s*(?!我|自己|你)([^\s，。！？、]{1,8})\s*去|"
+    r"(让|叫|派)\s*(?!我|自己|你)(?:[^\s，。！？、]{0,4}(?:agent|worker|帮手|助手|后台|代理|子任务|节点|工具|系统)|[A-Za-z][A-Za-z0-9_]{2,})\s*(去|来|出|画|渲|跑|执行|处理|查)|"
     r"\b(render_agent|research_agent|create_subagent|agent_profile)\b|"
     r"\brender\b.{0,6}(出|画|渲)|"
     r"(出|画|渲).{0,6}\brender\b",

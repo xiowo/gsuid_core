@@ -1343,16 +1343,20 @@ class Bind(BaseModel):
         if result is None:
             return None
 
-        uid = getattr(result, cls.get_gameid_name(game_name))
-        if uid is None:
-            return None
-        else:
-            uid_list = uid.split("_")
+        # 兼容非标 Bind 子类：未指定游戏名且缺默认 uid 字段时视为无绑定
+        if not game_name or game_name == "gs":
+            if not hasattr(result, "uid"):
+                return None
+        col_name = cls.get_gameid_name(game_name)
 
-        if uid_list:
-            return uid_list
-        else:
+        if not hasattr(result, col_name):
             return None
+
+        raw_uid = getattr(result, col_name)
+        if not isinstance(raw_uid, str) or not raw_uid:
+            return None
+        uid_list = [u for u in raw_uid.split("_") if u]
+        return uid_list if uid_list else None
 
     @classmethod
     async def get_uid_by_game(

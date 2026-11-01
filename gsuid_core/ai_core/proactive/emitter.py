@@ -134,6 +134,7 @@ async def emit_proactive_message(
     bot: Optional[Bot] = None,
     suppress_when_heartbeat_recent: bool = True,
     at_user_id: Optional[str] = None,
+    persona_name: Optional[str] = None,
 ) -> bool:
     """统一主动消息出口。
 
@@ -192,7 +193,7 @@ async def emit_proactive_message(
     from gsuid_core.ai_core.output_gate import GateDecision, pre_send_gate
     from gsuid_core.ai_core.persona.settings import persona_name_from_event
 
-    pname = persona_name_from_event(event)
+    pname = persona_name or persona_name_from_event(event)
     out_msg = rewrite_cq_at(message)
     if out_msg:
         _bag: Dict[str, object] = {}
@@ -235,6 +236,15 @@ async def emit_proactive_message(
     )
 
     # 4) 同步到用户主 session（pydantic_ai 历史 + session_logger）
+    if not event.group_id and event.user_id and pname:
+        from gsuid_core.ai_core.proactive.dm_lease import grant_dm_lease
+
+        grant_dm_lease(
+            user_id=event.user_id,
+            persona_name=pname,
+            bot_id=event.bot_id or "",
+        )
+
     await _sync_to_main_session(
         event=event,
         message=out_msg,

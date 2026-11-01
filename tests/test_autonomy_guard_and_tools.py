@@ -141,6 +141,7 @@ def test_autonomy_tools_allow_send_and_exclude_high_risk() -> None:
         "run_bot_command",
         "artifact_put",
         "send_message_by_ai",
+        "read_chat_history",
     }
 
 

@@ -171,7 +171,13 @@ async def run_passive_interactive_chat(
         logger.info(t("log.ai.gscore_empty_content_visible"))
         return PassiveChatResult("silence")
 
+    if not event.group_id and event.user_id:
+        from gsuid_core.ai_core.proactive.dm_lease import renew_dm_lease
+
+        renew_dm_lease(user_id=event.user_id, bot_id=event.bot_id or "")
+
     session = await get_ai_session(event)
+
     if wall_clock_budget is not None and event.session_id.startswith("HTTP_AGENT:"):
         session.wall_clock_budget = wall_clock_budget
     hook_ctx.persona_name = session.persona_name

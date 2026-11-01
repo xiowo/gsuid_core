@@ -969,6 +969,14 @@ class PersonaConfigManager(ConfigSetManager):
                 if user_id and user_id in target_groups:
                     return persona_name
 
+        if is_private_chat and user_id:
+            from gsuid_core.ai_core.proactive.dm_lease import get_active_dm_lease
+
+            bot_id = parts[1] if len(parts) > 1 else ""
+            lease = get_active_dm_lease(user_id, bot_id)
+            if lease is not None and lease.persona_name in self.get_all_configs():
+                return lease.persona_name
+
         return self.get_fallback_persona(is_private=is_private_chat)
 
     def get_persona_config_dict(self, persona_name: str) -> Optional[Dict]:

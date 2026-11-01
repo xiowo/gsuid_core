@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from contextvars import Token, ContextVar
 from dataclasses import field, dataclass
@@ -30,6 +31,7 @@ AUTONOMY_TOOL_ALLOWLIST = frozenset(
         "run_bot_command",
         "artifact_put",
         "send_message_by_ai",
+        "read_chat_history",
     }
 )
 _EXECUTABLE = frozenset({"command", "prefix", "fullmatch", "keyword", "suffix"})
@@ -500,7 +502,7 @@ async def send_message_by_ai(
 
     target_key = make_target_key(dest_group_id, dest_user_id or None)
     dispatcher = get_dispatcher()
-    clock = state.now
+    clock = time.time() if state.now >= 100_000_000 else state.now
     if dispatcher.should_suppress_by_rate(target_key, max_per_hour=state.hour_cap, max_per_day=state.day_cap):
         return (
             "发送被拦截：目标近期主动发言配额已达上限（防打扰）。请勿继续发信，可将成果用 artifact_put 存为个人笔记。"

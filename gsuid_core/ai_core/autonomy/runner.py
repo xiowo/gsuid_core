@@ -2,7 +2,10 @@
 
 import time
 import uuid
+import asyncio
 
+from gsuid_core.i18n import t
+from gsuid_core.logger import logger
 from gsuid_core.models import Event
 from gsuid_core.ai_core.autonomy.tools import GuardState, bind_guard, reset_guard, build_autonomy_tools
 from gsuid_core.ai_core.autonomy.models import (
@@ -109,14 +112,20 @@ async def run_autonomy_agent(
     token = bind_guard(guard)
     started = time.perf_counter()
     try:
-        result = await agent.run(
-            user_prompt,
-            ev=event,
-            tools=build_autonomy_tools(),
-            return_mode="return",
-            budget_gate=True,
-            is_framework_injection=True,
+        result = await asyncio.wait_for(
+            agent.run(
+                user_prompt,
+                ev=event,
+                tools=build_autonomy_tools(),
+                return_mode="return",
+                budget_gate=True,
+                is_framework_injection=True,
+            ),
+            timeout=240.0,
         )
+    except asyncio.TimeoutError:
+        logger.warning(t("log.ai.autonomy_run_fail", persona_name=digest.persona_name, e="timeout"))
+        result = ""
     finally:
         reset_guard(token)
         agent._session_logger.close()

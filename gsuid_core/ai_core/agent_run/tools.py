@@ -603,7 +603,7 @@ class ToolsPhase(RunOnceHost):
                         turn_seeds = await align_seeds_to_context_plugin(
                             turn_seeds, _lock.plugin, _scan or qy, _scope, hard=_lock.explicit
                         )
-                    if _call_self:
+                    if _call_self and st.intent != "闲聊":
                         _routed = plugins_in_text(_scan)
                         # 向量检索命中不算。要实体路由真正装上该插件的工具。
                         if len(_utter) >= 12 and _routed:

@@ -354,6 +354,30 @@ async def _build_zone_section(
     return "\n".join(lines)
 
 
+def _normalize_speak_decision(raw_decision: object) -> Optional[dict[str, object]]:
+    """归一化模型返回的决策字典，处理数组包装、错别字与否定键反转。"""
+    decision: object = raw_decision
+    if isinstance(decision, list):
+        decision = next((item for item in decision if isinstance(item, dict)), None)
+    if not isinstance(decision, dict):
+        return None
+    normalized: dict[str, object] = dict(decision)
+    if "should_speak" not in normalized:
+        for k in list(normalized.keys()):
+            k_lower = k.lower()
+            # 兼容模型拼写变体与否定形式，否定键翻转布尔值以避免语义反转
+            if any(neg in k_lower for neg in ("not", "dont", "no_")):
+                if k_lower.startswith(("should_", "shoud_", "dont_", "do_not_", "no_")) or k_lower.endswith(
+                    ("_speak", "_speck", "_silent", "_silence")
+                ):
+                    normalized["should_speak"] = not bool(normalized.pop(k))
+                    break
+            elif k_lower.startswith(("should_", "shoud_")) or k_lower.endswith(("_speak", "_speck")):
+                normalized["should_speak"] = normalized.pop(k)
+                break
+    return normalized
+
+
 async def run_heartbeat(
     event: Event,
     history: List[MessageRecord],
@@ -487,24 +511,22 @@ async def run_heartbeat(
         return None
 
     try:
-        decision = extract_json_from_text(result)
+        raw_decision = extract_json_from_text(result)
     except (json.JSONDecodeError, ValueError) as e:
         logger.warning(t("log.ai.heartbeat_parse_decision_result_fail", e=e, result=repr(result)))
         return None
 
-    # 模型可能把决策对象包进数组（如 [{...}]），取首个 dict 归一化，非 dict 判为解析失败
-    if isinstance(decision, list):
-        decision = next((item for item in decision if isinstance(item, dict)), None)
-    if not isinstance(decision, dict):
+    decision = _normalize_speak_decision(raw_decision)
+    if decision is None:
         logger.warning(t("log.ai.heartbeat_decision_result_expected_skip", result=repr(result)))
         return None
     if "mood" not in decision or "should_speak" not in decision:
         logger.warning(t("log.ai.heartbeat_decision_object_missing_skip", result=repr(result)))
         return None
 
-    mood: str = decision["mood"]
+    mood: str = str(decision["mood"])
     should_speak: bool = bool(decision["should_speak"])
-    context_hook = decision["context_hook"] if "context_hook" in decision else ""
+    context_hook = str(decision["context_hook"]) if "context_hook" in decision else ""
 
     logger.debug(
         t("log.heartbeat.speak_mood_context_hook_ok", should_speak=should_speak, mood=mood, context_hook=context_hook)
@@ -805,14 +827,13 @@ async def run_reactive_gate(
             logger.info(t("log.ai.reactive_gate_outcome", outcome="llm_silence", reason="silence_marker"))
             return False
         try:
-            decision = extract_json_from_text(result)
+            raw_decision = extract_json_from_text(result)
         except (json.JSONDecodeError, ValueError):
             record_gate_outcome("llm_silence")
             logger.info(t("log.ai.reactive_gate_outcome", outcome="llm_silence", reason="json_parse_fail"))
             return False
-        if isinstance(decision, list):
-            decision = next((item for item in decision if isinstance(item, dict)), None)
-        if not isinstance(decision, dict) or "should_speak" not in decision:
+        decision = _normalize_speak_decision(raw_decision)
+        if decision is None or "should_speak" not in decision:
             record_gate_outcome("llm_silence")
             logger.info(t("log.ai.reactive_gate_outcome", outcome="llm_silence", reason="decision_missing"))
             return False

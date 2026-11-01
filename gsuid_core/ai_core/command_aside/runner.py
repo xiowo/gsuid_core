@@ -326,7 +326,7 @@ async def apply_aside(
     all_omitted = shape == "image" and _all_images_omitted(pieces)
 
     if not in_cooldown and not all_omitted and comment_this_time(shape, settings, roll):
-        memory = lookup_advice(plugin, receipt, trigger_id=entry_rel) if plugin else ""
+        memory = lookup_advice(plugin, receipt, trigger_id=entry_rel, persona_name=persona_name) if plugin else ""
         mount_reader = settings.allow_tools and plugin_root is not None and not memory
         if memory:
             _note_session(session, memory, "aside_memory")
@@ -380,11 +380,16 @@ async def apply_aside(
     ran = spoken is not None
     advice = ""
     if ran and spoken and spoken.strip():
-        if not is_silence_marker(spoken):
-            advice = spoken.strip()
+        stripped = spoken.strip()
+        if (
+            not is_silence_marker(stripped)
+            and not stripped.startswith("执行出错")
+            and "Request timed out" not in stripped
+        ):
+            advice = stripped
     # 仅在回执像失败或用法说明时存入建议记忆，成功回执不存
     if advice and not memory and plugin and _is_failure_or_usage_receipt(receipt):
-        save_advice(plugin, receipt, advice, trigger_id=entry_rel)
+        save_advice(plugin, receipt, advice, trigger_id=entry_rel, persona_name=persona_name)
     if advice and bot is not None:
         await bot.send(advice)
     if advice:
