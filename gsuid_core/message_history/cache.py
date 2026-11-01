@@ -16,11 +16,13 @@ import json
 import time
 import asyncio
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlmodel import Field, Index, SQLModel, col, func, delete, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gsuid_core.i18n import t
 from gsuid_core.logger import logger
 from gsuid_core.utils.database.base_models import with_session, with_read_session
 
@@ -78,7 +80,7 @@ class CoreMessageCache(SQLModel, table=True):
         session: AsyncSession,
         session_id: str,
         limit: int,
-    ) -> List["CoreMessageCache"]:
+    ) -> Sequence["CoreMessageCache"]:
         statement = (
             select(cls)
             .where(cls.session_id == session_id)
@@ -91,21 +93,25 @@ class CoreMessageCache(SQLModel, table=True):
 
     @classmethod
     @with_read_session
-    async def select_latest_rows(cls, session: AsyncSession) -> List["CoreMessageCache"]:
-        """每个会话只取最新一条，用来还原会话列表。
-
-        不用 `max(id)` 走捷径：id 只保证插入顺序，补历史 / 导入的数据可能时间更早。
-        """
-        marks = select(col(cls.session_id), func.max(cls.timestamp)).group_by(col(cls.session_id))
-        pairs = (await session.execute(marks)).all()
-        if not pairs:
-            return []
-        statement = select(cls).where(col(cls.timestamp).in_([ts for _, ts in pairs]))
-        rows = list((await session.execute(statement)).scalars().all())
+    async def select_latest_rows(cls, session: AsyncSession) -> Sequence["CoreMessageCache"]:
+        """每个会话只取最新一条，用来还原会话列表。"""
+        subq = (
+            select(
+                col(cls.session_id).label("sub_session_id"),
+                func.max(cls.timestamp).label("max_ts"),
+            )
+            .group_by(col(cls.session_id))
+            .subquery()
+        )
+        statement = select(cls).join(
+            subq,
+            (col(cls.session_id) == subq.c.sub_session_id) & (col(cls.timestamp) == subq.c.max_ts),
+        )
+        rows = (await session.execute(statement)).scalars().all()
         best: Dict[str, "CoreMessageCache"] = {}
         for row in rows:
             current = best.get(row.session_id)
-            if current is None or (row.timestamp, row.id or 0) > (current.timestamp, current.id or 0):
+            if current is None or (row.id or 0) > (current.id or 0):
                 best[row.session_id] = row
         return list(best.values())
 
@@ -124,13 +130,13 @@ class CoreMessageCache(SQLModel, table=True):
     @with_session
     async def purge_before(cls, session: AsyncSession, cutoff_ms: int) -> int:
         result = await session.execute(delete(cls).where(col(cls.created_at) < cutoff_ms))
-        return int(result.rowcount or 0)
+        return int(result.rowcount if isinstance(result, CursorResult) else 0)
 
     @classmethod
     @with_session
     async def clear_all(cls, session: AsyncSession) -> int:
         result = await session.execute(delete(cls))
-        return int(result.rowcount or 0)
+        return int(result.rowcount if isinstance(result, CursorResult) else 0)
 
     # 输出
 
@@ -259,7 +265,7 @@ def _put_nowait(queue: "asyncio.Queue[Dict[str, Any]]", payload: Dict[str, Any])
     try:
         queue.put_nowait(payload)
     except asyncio.QueueFull:
-        logger.debug("[MessageCache] 队列已满，丢弃一条待缓存消息")
+        logger.debug(t("log.cache.queue_full"))
 
 
 async def _consume(queue: "asyncio.Queue[Dict[str, Any]]") -> None:
@@ -287,7 +293,7 @@ async def _flush(batch: List[Dict[str, Any]]) -> None:
     try:
         await CoreMessageCache.batch_insert(list(batch))
     except Exception as e:  # 缓存失败不能影响正常消息收发
-        logger.warning(f"[MessageCache] 写入失败，丢弃 {len(batch)} 条: {e}")
+        logger.warning(t("log.cache.flush_failed", count=len(batch), e=e))
 
 
 async def _maybe_cleanup() -> None:
@@ -312,10 +318,10 @@ async def purge_expired() -> int:
     try:
         removed = await CoreMessageCache.purge_before(cutoff_ms)
     except Exception as e:
-        logger.debug(f"[MessageCache] 清理过期数据失败: {e}")
+        logger.debug(t("log.cache.purge_failed", e=e))
         return 0
     if removed:
-        logger.info(f"[MessageCache] 已清理 {removed} 条过期缓存（保留 {hours} 小时）")
+        logger.info(t("log.cache.cleaned_expired", removed=removed, hours=hours))
     return removed
 
 
@@ -328,7 +334,7 @@ async def query_messages(session_id: str, limit: int) -> List[Dict[str, Any]]:
     try:
         rows = await CoreMessageCache.select_recent(session_id, limit)
     except Exception as e:
-        logger.debug(f"[MessageCache] 读取会话缓存失败: {e}")
+        logger.debug(t("log.cache.read_failed", e=e))
         return []
     return [row.to_chat_message() for row in rows]
 
@@ -339,7 +345,7 @@ async def query_sessions() -> Dict[str, Dict[str, Any]]:
         latest = await CoreMessageCache.select_latest_rows()
         counts = await CoreMessageCache.select_counts()
     except Exception as e:
-        logger.debug(f"[MessageCache] 读取会话缓存失败: {e}")
+        logger.debug(t("log.cache.read_failed", e=e))
         return {}
 
     result: Dict[str, Dict[str, Any]] = {}

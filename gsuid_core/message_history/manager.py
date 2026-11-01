@@ -23,7 +23,7 @@ from dataclasses import field, dataclass
 from gsuid_core.models import Event, Message
 
 
-def node_items_to_history(items: List[Message]) -> List[Dict[str, Any]]:
+def node_items_to_history(items: List[Message], *, register_media: bool = True) -> List[Dict[str, Any]]:
     """node 子项序列化为可 JSON 化的 [{type, data}]，供 metadata 存回放。
 
     只留 http(s) 直链：图片的本地路径原样留着，前端直接显示路径文本；base64 降级为

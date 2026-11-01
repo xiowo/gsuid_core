@@ -815,6 +815,7 @@ async def chat_ws(websocket: WebSocket) -> None:
 
     async def _pump() -> None:
         while True:
+            payload: Dict[str, Any]
             try:
                 payload = await asyncio.wait_for(queue.get(), timeout=_WS_PING_SECONDS)
             except asyncio.TimeoutError:
@@ -822,12 +823,15 @@ async def chat_ws(websocket: WebSocket) -> None:
             if payload.get("type") == "message":
                 # 和 HTTP 路径对齐：补 self 标记与 at 昵称，否则实时推来的这条
                 # 会把 openid 原样显示出来，刷新一下才对
-                message = payload.get("message")
-                if isinstance(message, dict):
+                msg_val = payload.get("message")
+                if isinstance(msg_val, dict):
+                    message = dict(msg_val)
                     message["self"] = message.get("role") == "assistant"
                     ev = _resolve(str(payload.get("session_id") or ""))
                     if ev is not None:
                         await _fill_at_names([message], str(ev.bot_id or ""))
+                    payload = dict(payload)
+                    payload["message"] = message
             await websocket.send_text(json.dumps(payload, ensure_ascii=False, default=str))
 
     async def _watch() -> None:
