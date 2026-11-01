@@ -498,3 +498,22 @@ def test_group_title_reads_sender_before_database(monkeypatch):
     got = asyncio.run(api._title_avatar(True, "575663150", "1", {}))
     assert got == ("库里的群名", "https://db/i.png")
     assert calls == ["575663150"]
+
+
+def test_send_result_reads_adapter_error_code():
+    """适配器把失败编码成 __send_error__:原因，控制台要认出来，不能一律报成功。"""
+    from types import SimpleNamespace
+
+    from gsuid_core.webconsole import session_chat_api as api
+
+    bot = SimpleNamespace(_supports_recall=True)
+
+    # 正常拿到消息 id
+    assert api._send_error(["123456"], bot) == ""
+    # 适配器带回错误码
+    assert api._send_error(["__send_error__:机器人不在该群"], bot) == "机器人不在该群"
+    assert api._send_error(["__send_error__:"], bot) == "发送失败"
+    # 一帧回执都没有 = 没发出去
+    assert api._send_error([], bot)
+    # 老适配器压根不支持回执，判失败会误报，放行
+    assert api._send_error([], SimpleNamespace(_supports_recall=False)) == ""

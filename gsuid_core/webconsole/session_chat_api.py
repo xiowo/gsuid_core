@@ -57,6 +57,24 @@ def _ok(data: Any) -> Dict[str, Any]:
     return {"status": 0, "msg": "ok", "data": data}
 
 
+_SEND_ERROR_PREFIX = "__send_error__:"
+
+
+def _send_error(receipts: Optional[List[str]], bot: Any) -> str:
+    """从 ``wait_recall`` 回执里读发送结果，空串表示成功。"""
+    if receipts is None:
+        return ""
+    for item in receipts:
+        text = str(item or "")
+        if text.startswith(_SEND_ERROR_PREFIX):
+            return text[len(_SEND_ERROR_PREFIX) :] or "发送失败"
+    if receipts:
+        return ""
+    if getattr(bot, "_supports_recall", None) is False:
+        return ""
+    return "适配器没有返回回执，消息可能没有发出去"
+
+
 def _event_of(
     ws_bot_id: str,
     bot_id: str,
@@ -587,7 +605,10 @@ async def send_chat_message(
             ),
             ev,
         )
-        await Bot(ws_bot, ev).send(segments)
+        receipts = await Bot(ws_bot, ev).send(segments, wait_recall=True)
+        error = _send_error(receipts, ws_bot)
+        if error:
+            return _fail(f"发送消息失败: {error}")
         return _ok({"session_id": session_id, "segments": len(segments)})
     except Exception as e:
         return _fail(f"发送消息失败: {e}")
