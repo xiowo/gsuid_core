@@ -216,9 +216,7 @@ def test_target_info_falls_back_to_core_user(monkeypatch: pytest.MonkeyPatch) ->
     async def scenario() -> None:
         await _bind_mem_db(monkeypatch)
         async with base_models.async_maker() as session:
-            session.add(
-                CoreUser(bot_id="qqgroup", user_id="openid-1", user_name="猫猫", user_icon="https://i")
-            )
+            session.add(CoreUser(bot_id="qqgroup", user_id="openid-1", user_name="猫猫", user_icon="https://i"))
             await session.commit()
 
         data = (await get_chat_target_info("QQBotUID:qqgroup:10000:private:openid-1"))["data"]

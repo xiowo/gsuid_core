@@ -162,9 +162,9 @@ def _loads(text: str, fallback: Any) -> Any:
     return value if isinstance(value, type(fallback)) else fallback
 
 
-#-----------
+# -----------
 # 配置
-#-----------
+# -----------
 
 
 def cache_hours() -> int:
@@ -183,9 +183,9 @@ def cache_enabled() -> bool:
     return cache_hours() > 0
 
 
-#-----------
+# -----------
 # 后台写入
-#-----------
+# -----------
 
 _lock = threading.Lock()
 _queue: Optional["asyncio.Queue[Dict[str, Any]]"] = None
@@ -319,9 +319,9 @@ async def purge_expired() -> int:
     return removed
 
 
-#-----------
+# -----------
 # 读取（给控制台用）
-#-----------
+# -----------
 
 
 async def query_messages(session_id: str, limit: int) -> List[Dict[str, Any]]:

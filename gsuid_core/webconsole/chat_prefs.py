@@ -3,11 +3,7 @@
 两样都是**面板自己的状态**，不属于任何适配器，存一份 JSON 就够：
 
 ```
-{
-  "version": 1,
-  "pins":  {"12345:group:67890": 1760000000000},
-  "notes": {"12345:group:67890": "自家小群"}
-}
+{"version": 1, "pins": {"12345:group:67890": 1760000000000}, "notes": {"12345:group:67890": "自家小群"}}
 ```
 
 key 就是 `Event.session_id`（`{WS_BOT_ID}:{bot_id}:{bot_self_id}:{type}:{id}`），

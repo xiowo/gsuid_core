@@ -688,9 +688,7 @@ async def get_chat_target_info(
                 "type": "user",
                 "key": session_id,
                 "id": target,
-                "name": str(
-                    sender.get("card") or sender.get("nickname") or meta.get("user_name") or target
-                ),
+                "name": str(sender.get("card") or sender.get("nickname") or meta.get("user_name") or target),
                 "avatar": str(sender.get("avatar") or meta.get("user_icon") or ""),
                 "card": str(sender.get("card") or ""),
                 "role": str(sender.get("role") or ""),

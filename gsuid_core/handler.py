@@ -456,9 +456,7 @@ def _record_inbound_history(event: Event) -> None:
     has_text = bool(event.raw_text and event.raw_text.strip())
     has_image = bool(event.image_id or event.image_id_list)
     has_node = event.node is not None
-    has_rich = any(
-        isinstance(item, Message) and item.type in _RICH_SEGMENT_TYPES for item in (event.content or [])
-    )
+    has_rich = any(isinstance(item, Message) and item.type in _RICH_SEGMENT_TYPES for item in (event.content or []))
     if not (has_text or event.at_list or has_image or has_node or has_rich):
         return
 
