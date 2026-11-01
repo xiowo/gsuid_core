@@ -25,9 +25,9 @@
 {"type": "text",     "text": "你好"}
 {"type": "at",       "qq": "10000", "name": ""}
 {"type": "reply",    "id": "123456"}
-{"type": "image",    "url": "https://… 或 /api/history/resource/img_xxx"}
-{"type": "record",   "url": "…"}
-{"type": "video",    "url": "…"}
+{"type": "image",    "url": "https://…", "name": "本地路径", "error": "图片已过期"}
+{"type": "record",   "url": "…", "error": "语音已过期"}
+{"type": "video",    "url": "…", "error": "视频已过期"}
 {"type": "file",     "url": "…", "name": "报告.pdf"}
 {"type": "face",     "id": "1"}
 {"type": "forward",  "count": 2, "items": [[seg, …], …]}
@@ -37,12 +37,12 @@
 {"type": "unknown",  "kind": "some_type", "text": "[some_type]"}
 ```
 
-媒体一律不留 base64：能拿到直链就用直链，其余登记进 `RM` 换成 `/api/history/resource/{id}`。
-本地文件路径会先读成字节再登记——资源路由把 `str` 当 base64 解，直接存路径取回会 500。
+媒体一律不留大体积数据进内存：
+- 直链（`http://` / `https://`）直接保留 URL 供前端加载；
+- 本地文件路径原样保留路径文本（`name`），前端直接显示路径，不读盘、不转存；
+- `base64` 内容一律不落内存，仅保留类型占位符（若无直链则标记 `{"type": "image", "url": "", "error": "图片已过期"}`），避免大图常驻内存撑爆进程。
 
-插件常把 Markdown 直接拼进 `text` 段（`![图片 #36px #36px](路径)`、`[按钮](mqqapi://aio/inlinecmd?…)`），
-平台侧会渲染成图片和按钮。这类 `text` 段会被升级成 `markdown` 段，其中的本地图片路径同步换成资源直链；
-普通聊天里的 `1+1`、`a_b_c` 不命中 Markdown 结构，仍是 `text` 段。
+普通文本消息一律保持为 `text` 段，不当 Markdown 解析（防止类似 `![x](D:/...)` 构造任意文件读取）；只有平台/适配器自身产生的 `markdown` 或 `template_markdown` 段才按 Markdown 处理。合并转发（`forward`）递归展开深度上限为 3 层、单层展开上限 100 条子项，超限后仅保留计数（`count`）。
 
 ## 47.3 会话列表
 
@@ -52,7 +52,7 @@ GET /api/history/chat/sessions
 
 返回 `{sessions: [...], count}`，每项含 `session_id`、`type`、`title`（群名 / 昵称，取不到退回 id）、
 `avatar`、`message_count`、`last_preview`、`last_time`，以及 `pinned` / `note` / `blacklisted`。
-排序规则：置顶优先，其次按最后一条消息时间倒序。
+排序规则：置顶优先，其次按最后一条消息时间倒序。开启消息缓存时，仅在数据库中存在的历史会话也会被还原到列表中。
 
 ## 47.4 会话消息
 
@@ -77,6 +77,7 @@ GET /api/history/chat/{session_id}/messages?limit=500
 ```
 
 `self=true` 表示机器人自己发的。`msg_id` 是平台消息 ID，引用回复要用它。
+开启消息缓存时，返回结构中附带 `from_cache` 表示从持久化缓存中补充的历史消息条数。
 
 ## 47.5 发送消息
 
@@ -87,13 +88,12 @@ POST /api/history/chat/{session_id}/send    (multipart/form-data)
 | 字段 | 说明 |
 |------|------|
 | `mode` | `plain` / `markdown` / `card` / `rich` |
-| `text` | 普通文本 |
-| `markdown` | markdown 正文（`plain` 模式下忽略） |
+| `text` | 普通文本（`plain` 模式下生效） |
+| `markdown` | markdown 正文（`markdown` 模式下生效，平台不支持时适配器自动降级） |
 | `card` | `{type, content}` 的 JSON，出 `card` 段。面板只开放图文卡片 `tuwen`，字段用 QQ 官方叫法 `title` / `description` / `pic_url` / `url`，空字段不发；`desc` / `picUrl` / `jumpUrl` 也会被归一成官方字段名，认不出的字段直接丢弃（官方接口对多余字段是报错不是忽略）。协议端发不出 card 时适配器会跳过该段 |
 | `at` | 逗号分隔的用户 id 列表，@ 段排在正文之后 |
 | `reply` | 被引用消息的 `msg_id`，reply 段排在最前 |
-| `image_urls` | 图片直链（仅 http/https） |
-| `images` / `records` / `videos` / `files` | 上传文件，`rich` 模式下四个都会带上（前端按 MIME 自动分段） |
+| `images` / `records` / `videos` / `files` | 上传文件。`rich` 模式下四个都会带上（前端按 MIME 自动分段）；普通文本模式下也可附带上传图片 |
 
 发出去的消息会经 `Bot.send` 自动进历史，随后由 WebSocket 推回前端，不需要本地插入。
 
@@ -112,12 +112,10 @@ POST /api/history/chat/{session_id}/prefs
 ## 47.7 群 / 用户信息卡
 
 ```
-GET /api/history/chat/{session_id}/info?user_id=&refresh=true
+GET /api/history/chat/{session_id}/info?user_id=
 ```
 
-群聊返回群名 / 群号 / 人数，私聊返回昵称 / 群名片 / 群身份 / openid / 账号 / unionid。
-`refresh=true` 时先向适配器现取（OneBot 系经 `plugins/OneBotUID` 的通用接口桥），
-取不到就退回面板记录，并在 `live_error` 里说明原因。
+群聊返回群名 / 群号 / 人数（优先从 `CoreGroup` 表查询）；私聊返回昵称 / 群名片 / 群身份 / openid / unionid（优先取最近消息的 `sender` 快照；若进程重启导致内存历史清空，会自动从消息缓存表恢复快照；无快照时退回早柚用户库 `CoreUser` 补齐昵称与头像）。
 
 ## 47.8 实时推送
 
@@ -134,8 +132,7 @@ WS /api/history/chat/ws?token=<控制台登录令牌>
 {"type": "ping"}
 ```
 
-`HistoryManager.add_message` 写入后经 `message_history/hub.py` 广播；`ping` 每 25 秒一帧，
-用来保活并顺带发现掉线的客户端。队列满时丢新消息，不阻塞发消息主链路。
+`HistoryManager.add_message` 写入后经 `message_history/hub.py` 广播；订阅者队列上限 128 条，满时丢新消息不阻塞发消息主链路；`ping` 每 25 秒一帧，用来保活并顺带发现断开的客户端。
 
 ## 47.9 消息缓存
 
