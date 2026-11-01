@@ -31,7 +31,7 @@ base64 只留类型占位 —— 控制台知道「发过这个」就够了。
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
 
 from gsuid_core.models import Event, Message
 
@@ -285,32 +285,54 @@ def segments_from_event(event: Event) -> List[Dict[str, Any]]:
     return segments
 
 
-def chat_message_from_record(record: Any, segments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+class RecordLike(Protocol):
+    @property
+    def role(self) -> str: ...
+
+    @property
+    def content(self) -> str: ...
+
+    @property
+    def user_id(self) -> Optional[str]: ...
+
+    @property
+    def user_name(self) -> Optional[str]: ...
+
+    @property
+    def user_avatar(self) -> Optional[str]: ...
+
+    @property
+    def timestamp(self) -> float: ...
+
+    @property
+    def metadata(self) -> Dict[str, Any]: ...
+
+
+def chat_message_from_record(record: RecordLike, segments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """MessageRecord → 控制台消息对象。
 
     段数组是「原始数据」，只进 `coremessagecache` 给人看，不进内存里的 `MessageRecord`。
     所以这里优先用调用方递进来的那一份（刚处理完的消息手上就有），拿不到再按 content
     兜底成一条文本段。
     """
-    metadata = getattr(record, "metadata", None)
-    meta: Dict[str, Any] = metadata if isinstance(metadata, dict) else {}
+    meta = record.metadata if isinstance(record.metadata, dict) else {}
     if not isinstance(segments, list) or not segments:
-        content = str(getattr(record, "content", "") or "")
+        content = str(record.content or "")
         segments = [{"type": "text", "text": content}] if content else []
     sender = meta.get("sender")
     sender_dict = sender if isinstance(sender, dict) else {}
-    role = getattr(record, "role", "user")
-    user_id = getattr(record, "user_id", "") or ""
+    role = record.role or "user"
+    user_id = record.user_id or ""
     # 机器人自己发的那条，record.user_id 存的是提问的人，换回 bot 自己
     if role == "assistant" and sender_dict.get("user_id"):
         user_id = str(sender_dict["user_id"])
     return {
         "role": role,
         "user_id": user_id,
-        "user_name": getattr(record, "user_name", None),
-        "user_avatar": getattr(record, "user_avatar", None),
-        "timestamp": getattr(record, "timestamp", 0.0),
-        "content": getattr(record, "content", "") or "",
+        "user_name": record.user_name,
+        "user_avatar": record.user_avatar,
+        "timestamp": record.timestamp or 0.0,
+        "content": record.content or "",
         "segments": segments,
         "sender": sender_dict,
         "msg_id": str(meta.get("msg_id") or ""),

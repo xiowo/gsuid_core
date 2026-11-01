@@ -52,8 +52,9 @@ class ResourceManager:
         # 至少留一条：单个资源就超上限时不该把自己也淘汰掉
         while self._total_bytes > self._max_total_bytes and len(self._store) > 1:
             oldest_id = next(iter(self._store))
-            oldest_data, _ = self._store.pop(oldest_id)
-            self._total_bytes -= self._size_of(oldest_data)
+            oldest_item = self._store.pop(oldest_id, None)
+            if oldest_item is not None:
+                self._total_bytes -= self._size_of(oldest_item[0])
         if self._total_bytes < 0:
             self._total_bytes = 0
 
@@ -210,8 +211,9 @@ class ResourceManager:
         expired_ids = [rid for rid, (_, created_at) in self._store.items() if now - created_at > self._ttl_seconds]
 
         for rid in expired_ids:
-            data, _ = self._store.pop(rid)
-            self._total_bytes -= self._size_of(data)
+            item = self._store.pop(rid, None)
+            if item is not None:
+                self._total_bytes -= self._size_of(item[0])
         if self._total_bytes < 0:
             self._total_bytes = 0
 

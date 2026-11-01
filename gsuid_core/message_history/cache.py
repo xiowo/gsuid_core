@@ -16,7 +16,7 @@ import json
 import time
 import asyncio
 import threading
-from typing import Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from sqlmodel import Field, Index, SQLModel, col, func, delete, select
 from sqlalchemy.engine import CursorResult
@@ -24,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gsuid_core.i18n import t
 from gsuid_core.logger import logger
+from gsuid_core.models import Event
 from gsuid_core.utils.database.base_models import with_session, with_read_session
+
+if TYPE_CHECKING:
+    from gsuid_core.message_history.manager import MessageRecord
 
 # 队列长度 / 批量大小：消息高峰期先堆在内存里，后台一次写一批
 _QUEUE_MAX = 2000
@@ -205,8 +209,8 @@ def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
     global _loop, _queue, _worker, _last_cleanup
 
     with _lock:
-        _loop = loop
-        if _queue is None:
+        if _loop is not loop or _queue is None:
+            _loop = loop
             _queue = asyncio.Queue(maxsize=_QUEUE_MAX)
         if _worker is None or _worker.done():
             _worker = loop.create_task(_consume(_queue), name="message-cache-writer")
@@ -214,34 +218,33 @@ def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def payload_from_record(
-    event: Any,
-    record: Any,
+    event: Event,
+    record: MessageRecord,
     segments: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """把一条 MessageRecord + Event 压成待写入的行。
 
     段数组由调用方直接递进来 —— 它不进内存里的 `MessageRecord`，只在这里落库。
     """
-    meta = getattr(record, "metadata", None)
-    meta = meta if isinstance(meta, dict) else {}
+    meta = record.metadata if isinstance(record.metadata, dict) else {}
     if not isinstance(segments, list):
         segments = []
     sender = meta.get("sender")
-    content = getattr(record, "content", "") or ""
+    content = record.content or ""
     return {
         "session_id": event.session_id,
-        "WS_BOT_ID": str(getattr(event, "WS_BOT_ID", "") or ""),
-        "bot_id": str(getattr(event, "bot_id", "") or ""),
-        "bot_self_id": str(getattr(event, "bot_self_id", "") or ""),
-        "user_type": str(getattr(event, "user_type", "") or "group"),
-        "group_id": str(getattr(event, "group_id", "") or ""),
-        "user_id": str(getattr(record, "user_id", "") or ""),
-        "role": str(getattr(record, "role", "user") or "user"),
+        "WS_BOT_ID": str(event.WS_BOT_ID or ""),
+        "bot_id": str(event.bot_id or ""),
+        "bot_self_id": str(event.bot_self_id or ""),
+        "user_type": str(event.user_type or "group"),
+        "group_id": str(event.group_id or ""),
+        "user_id": str(record.user_id or ""),
+        "role": str(record.role or "user"),
         "content": content[:_CONTENT_MAX],
         "segments": json.dumps(segments if isinstance(segments, list) else [], ensure_ascii=False),
         "sender": json.dumps(sender if isinstance(sender, dict) else {}, ensure_ascii=False),
         "msg_id": str(meta.get("msg_id") or ""),
-        "timestamp": float(getattr(record, "timestamp", 0.0) or 0.0),
+        "timestamp": float(record.timestamp or 0.0),
         "created_at": int(time.time() * 1000),
     }
 

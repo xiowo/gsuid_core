@@ -224,3 +224,25 @@ def test_target_info_falls_back_to_core_user(monkeypatch: pytest.MonkeyPatch) ->
         assert data["avatar"] == "https://i"
 
     asyncio.run(scenario())
+
+
+def test_bind_loop_recreates_queue_on_new_loop():
+    """事件循环变化时必须重新绑定并新建队列，避免绑定在旧 loop 上。"""
+    import asyncio
+
+    import gsuid_core.message_history.cache as cache_module
+
+    loop1 = asyncio.new_event_loop()
+    loop2 = asyncio.new_event_loop()
+    try:
+        cache_module.bind_loop(loop1)
+        q1 = cache_module._queue
+        assert q1 is not None
+
+        cache_module.bind_loop(loop2)
+        q2 = cache_module._queue
+        assert q2 is not None
+        assert q1 is not q2
+    finally:
+        loop1.close()
+        loop2.close()

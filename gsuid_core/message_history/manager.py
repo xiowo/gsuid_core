@@ -462,6 +462,7 @@ class HistoryManager:
 
             target_history = self._histories.setdefault(target_key, deque())
             merged_records = list(target_history) + list(source_history)
+            merged_records.sort(key=lambda rec: rec.timestamp)
             target_history.clear()
             target_history.extend(merged_records)
             self._session_tokens.pop(source_key, None)

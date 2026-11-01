@@ -517,3 +517,26 @@ def test_send_result_reads_adapter_error_code():
     assert api._send_error([], bot)
     # 老适配器压根不支持回执，判失败会误报，放行
     assert api._send_error([], SimpleNamespace(_supports_recall=False)) == ""
+
+
+def test_merge_session_sorts_by_timestamp():
+    """merge_session 把 source 合并到 target 时必须按时间戳严格递增排序。"""
+    from gsuid_core.message_history import get_history_manager
+
+    manager = get_history_manager()
+    ev_source = Event(bot_id="onebot", WS_BOT_ID="ws1", bot_self_id="", group_id="123", user_type="group")
+    ev_target = Event(bot_id="onebot", WS_BOT_ID="ws1", bot_self_id="bot1", group_id="123", user_type="group")
+
+    manager.delete_session(ev_source)
+    manager.delete_session(ev_target)
+
+    r_target = manager.add_message(ev_target, role="user", content="第二条")
+    r_target.timestamp = 200.0
+    r_source = manager.add_message(ev_source, role="user", content="第一条")
+    r_source.timestamp = 100.0
+
+    assert manager.merge_session(ev_source, ev_target) is True
+    records = manager.get_history(ev_target)
+    assert len(records) == 2
+    assert [r.content for r in records] == ["第一条", "第二条"]
+    assert records[0].timestamp < records[1].timestamp

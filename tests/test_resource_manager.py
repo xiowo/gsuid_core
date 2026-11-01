@@ -50,3 +50,14 @@ def test_cleanup_keeps_byte_accounting_in_sync():
     time.sleep(0.01)
     assert rm._cleanup_expired() == 1
     assert rm._total_bytes == 0
+
+
+def test_cleanup_survives_missing_key():
+    """并发场景下若过期条目已被提前弹出，cleanup 不应抛 KeyError。"""
+    rm = ResourceManager()
+    rm._ttl_seconds = 0
+    rm.register(b"z" * 100)
+    rm._store.clear()
+    rm._total_bytes = 0
+    assert rm._cleanup_expired() == 0
+    assert rm._total_bytes == 0

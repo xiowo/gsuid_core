@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import asyncio
-from typing import Any, Set, Dict, List, Tuple, Optional
+from typing import Any, Set, Dict, List, Tuple, Optional, Sequence
 
 from fastapi import Body, File, Form, Depends, WebSocket, UploadFile, WebSocketDisconnect
 
@@ -39,7 +39,7 @@ from gsuid_core.webconsole.chat_prefs import (
     set_pinned,
 )
 from gsuid_core.webconsole.history_api import _parse_session_id
-from gsuid_core.message_history.segments import chat_message_from_record
+from gsuid_core.message_history.segments import RecordLike, chat_message_from_record
 
 from ._api_tags import SESSION_CHAT
 
@@ -118,13 +118,13 @@ async def _group_meta(group_id: str) -> Dict[str, Any]:
         return "" if text in ("", "1") else text
 
     try:
-        count = int(getattr(row, "group_count", 0) or 0)
+        count = int(row.group_count or 0)
     except (TypeError, ValueError):
         count = 0
 
     return {
-        "group_name": _pick(getattr(row, "group_name", "")),
-        "group_icon": _pick(getattr(row, "group_icon", "")),
+        "group_name": _pick(row.group_name),
+        "group_icon": _pick(row.group_icon),
         "group_count": count,
     }
 
@@ -148,17 +148,15 @@ async def _user_meta(user_id: str, bot_id: str) -> Dict[str, str]:
         return "" if text in ("", "1") else text
 
     return {
-        "user_name": _pick(getattr(row, "user_name", "")),
-        "user_icon": _pick(getattr(row, "user_icon", "")),
+        "user_name": _pick(row.user_name),
+        "user_icon": _pick(row.user_icon),
     }
 
 
-def _last_sender(records: List[Any], user_id: str = "", need: str = "") -> Dict[str, str]:
+def _last_sender(records: Sequence[RecordLike], user_id: str = "", need: str = "") -> Dict[str, str]:
     """倒着找最近一条 sender 快照；给了 user_id 就只认这个人，need 要求带上某个键。"""
     for record in reversed(records):
-        meta = getattr(record, "metadata", None)
-        if not isinstance(meta, dict):
-            continue
+        meta = record.metadata if isinstance(record.metadata, dict) else {}
         sender = meta.get("sender")
         if not isinstance(sender, dict):
             continue
@@ -360,7 +358,7 @@ async def list_chat_sessions(_: Dict[str, Any] = Depends(require_auth)) -> Dict[
             ev = _event_of(parsed[0], parsed[1], parsed[2], group_id, user_id)
             records = manager.get_history(ev)
             last = records[-1] if records else None
-            last_content = str(getattr(last, "content", "") or "") if last is not None else ""
+            last_content = str(last.content or "") if last is not None else ""
             sender = _last_sender(records, "" if group_id else user_id)
             if group_id and not sender.get("group_name"):
                 named = _last_sender(records, "", "group_name")
@@ -374,8 +372,8 @@ async def list_chat_sessions(_: Dict[str, Any] = Depends(require_auth)) -> Dict[
                     message_count=len(records),
                     last_segments=[],
                     last_content=last_content,
-                    last_role=getattr(last, "role", "") if last is not None else "",
-                    last_time=getattr(last, "timestamp", 0.0) if last is not None else 0.0,
+                    last_role=last.role if last is not None else "",
+                    last_time=last.timestamp if last is not None else 0.0,
                     last_access=info.get("last_access"),
                     created_at=info.get("created_at"),
                     sender=sender,
